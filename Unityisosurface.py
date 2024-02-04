@@ -55,7 +55,7 @@ theta_resolution = 5
 # End User Settings           #
 ###############################
 
-dates = pd.date_range(start,stop, freq=freq)
+dates = pd.date_range(t_start,t_end, freq=t_freq)
 
 for day in dates:
     #the date_range function outputs numpy dates, regular datetimes
