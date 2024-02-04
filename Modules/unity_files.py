@@ -74,7 +74,8 @@ def save_vector_field(U, V, W, filename, normalize=True):
     
     #this is where the data normalization happens
     if normalize == True:
-        maximum = np.amax(vector_field)
+        v_field = np.absolute(vector_field)
+        maximum = np.amax(v_field)
         vector_field = vector_field / maximum
 
     # Determine volume size
