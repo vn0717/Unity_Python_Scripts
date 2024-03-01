@@ -13,7 +13,7 @@ import s3fs
 from datetime import datetime
 import warnings
 import numpy as np
-from Modules import unity_files
+from modules import unity_files
 
 class nexrad_to_unity:
     def __init__(self, radar, time):
@@ -63,24 +63,8 @@ class nexrad_to_unity:
         self.__z_end__ = z_end * 1000
         self.__vertical_resolution__ = vertical_resolution
         self.__check_grid_inputs__()
-
-    def create_file(self, save_location, isosurfaces, variable = "reflectivity", file_type="dae", smooth=False):
-        """
-        Method to create Unity Isosurface file from radar data
-
-        Args:
-            save_location (STRING): The directory path to where you want the isosurface files saved to
-            isosurfaces (ARRAY LIKE): The variable values you want isosurfaces for
-            variable (STRING, OPTIONAL): The radar variable you want isosurfaces for. Defaults to "reflectivity".
-            file_type(BOOL, OPTIONAL): If you want isosurfaces smoothed before they are saved. Defaults to False.
-
-        """
-
-
-        from pyart.io import read_nexrad_archive
-        from pyart import filters
-        from pyart.map import grid_from_radars
-
+        
+    def __find_radar_file__(self):
         ####################################
         # Find Radar File
         ####################################
@@ -160,8 +144,12 @@ class nexrad_to_unity:
         if t_min >= 15:
             warnings.warn(f"Data is not close to the file and is {str(round(t_min,2))} minutes off from the selected time of {self.__time__:%m/%d/%Y %H%M} UTC")
         print(f"Selected file for {self.__radar__} at {f_time:%m/%d/%Y %H%M%S} UTC")
-
-
+        return file, f_time
+    
+    def __grid_radar__(self,file,variable):
+        from pyart.io import read_nexrad_archive
+        from pyart import filters
+        from pyart.map import grid_from_radars
         ######################################
         #Grid Radar Data
         ######################################
@@ -186,6 +174,37 @@ class nexrad_to_unity:
             grid_limits=((self.__z_start__, self.__z_end__), (self.__y_start__, self.__y_end__), (self.__x_start__, self.__x_end__)),
             fields=[variable],
         )
+        return radar_grid
+
+
+    def plot_area(self, variable = "reflectivity"):
+        import matplotlib.pyplot as plt
+        import pyart
+        file, _ = self.__find_radar_file__()
+        radar_grid = self.__grid_radar__(file, variable)
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        map = ax.imshow(radar_grid.fields[variable]["data"][0], origin="lower", cmap = "pyart_NWSRef", vmin=0, vmax=80)
+        plt.colorbar(map)
+        plt.show()
+
+    def create_file(self, save_location, isosurfaces, variable = "reflectivity", file_type="dae", smooth=False):
+        """
+        Method to create Unity Isosurface file from radar data
+
+        Args:
+            save_location (STRING): The directory path to where you want the isosurface files saved to
+            isosurfaces (ARRAY LIKE): The variable values you want isosurfaces for
+            variable (STRING, OPTIONAL): The radar variable you want isosurfaces for. Defaults to "reflectivity".
+            file_type(BOOL, OPTIONAL): If you want isosurfaces smoothed before they are saved. Defaults to False.
+
+        """
+
+
+
+
+        file, f_time = self.__find_radar_file__()
+        radar_grid = self.__grid_radar__(self, file, variable)
 
 
         ################################
