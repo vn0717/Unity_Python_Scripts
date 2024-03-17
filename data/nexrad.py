@@ -18,6 +18,7 @@ import pandas as pd
 
 class nexrad_to_unity:
     def __init__(self, radar, time, horizontal_resolution=1000, x_start=-100, x_end=100, y_start=-100, y_end=100, z_start=0, z_end=20, vertical_resolution = 500):
+        
         self.__s3__ = s3fs.S3FileSystem(anon=True)
         self.__radar__ = radar.upper()
         self.__time__ = time
@@ -36,36 +37,25 @@ class nexrad_to_unity:
 
 
 
-    def change_radar(self, radar, time):
+    def change_radar(self, radar, time, horizontal_resolution=1000, x_start=-100, x_end=100, y_start=-100, y_end=100, z_start=0, z_end=20, vertical_resolution = 500):
         """
         Method that changes the radar and time to get radar data for
 
         Args:
             radar (STRING): The four letter identifier for the radar
             time (DATETIME): The time radar data is requested for
-        """
-        self.__radar__ = radar
-        self.__time__ = time
-        self.__check_radar_inputs__()
-
-    def change_variable(self, variable = "reflectivity"):
-        self.variable = variable
-
-    def change_radar_grid(self, horizontal_resolution=1000, x_start=-100, x_end=100, y_start=-100, y_end=100, z_start=0, z_end=20, vertical_resolution = 500):
-        """
-        Method to change radar grid values
-
-        Args:
             horizontal_resolution (FLOAT, OPTIONAL): Horizontal resolution of the radar grid in meters. Defaults to 1000.
             x_start (FLOAT, OPTIONAL): The distance from the radar in the x direction that the left edge of the box starts in km. Defaults to -100.
             x_end (FLOAT, OPTIONAL): The distance from the radar in the x direction that the right edge of the box starts in km. Defaults to 100.
             y_start (FLOAT, OPTIONAL): The distance from the radar in the y direction that the bottom edge of the box starts in km. Defaults to -100.
             y_end (FLOAT, OPTIONAL): The distance from the radar in the y direction that the top edge of the box starts in km. Defaults to 100.
             z_start (FLOAT, OPTIONAL): The bottom of the grid the z direction in km. Defaults to 0.
-            z_end (FLOAT, OPTIONAL): The top of teh gird in the z direction in km. Defaults to 20.
+            z_end (FLOAT, OPTIONAL): The top of the gird in the z direction in km. Defaults to 20.
             vertical_resolution (FLOAT, OPTIONAL): Vertical resolution of the radar grid in meters. Defaults to 500.
         """
-
+        self.__radar__ = radar
+        self.__time__ = time
+        self.__check_radar_inputs__()
         self.__horizontal_resolution__ = horizontal_resolution
         self.__x_start__ = x_start * 1000
         self.__x_end__ = x_end * 1000
@@ -77,6 +67,11 @@ class nexrad_to_unity:
         self.__check_grid_inputs__()
         self.__radar_file__, self.__f_time__ = self.__find_radar_file__()
         self.__radar_grid__ = self.__grid_radar__()
+
+    def change_variable(self, variable = "reflectivity"):
+        self.variable = variable
+
+
         
     def __find_radar_file__(self):
         """
@@ -212,15 +207,15 @@ class nexrad_to_unity:
         plt.title(f"Valid at: {self.__f_time__:%m/%d/%Y %H%M%S} UTC" , size=8, loc="right")
         plt.show()
 
-    def create_file(self, save_location, isosurfaces, variable = "reflectivity", file_type="dae", smooth=False):
+    def create_file(self, save_location, isosurfaces, file_type="dae", smooth=False):
         """
         Method to create Unity Isosurface file from radar data
 
         Args:
             save_location (STRING): The directory path to where you want the isosurface files saved to
             isosurfaces (ARRAY LIKE): The variable values you want isosurfaces for
-            variable (STRING, OPTIONAL): The radar variable you want isosurfaces for. Defaults to "reflectivity".
-            file_type(BOOL, OPTIONAL): If you want isosurfaces smoothed before they are saved. Defaults to False.
+            smooth (BOOL, OPTIONAL): If you want isosurfaces smoothed before they are saved. Defaults to False.
+            file_type (STRING, OPTIONAL): The isosurface file type you want.  Only .dae and .obj files are available.
 
         """
 
@@ -230,7 +225,7 @@ class nexrad_to_unity:
         ################################
 
         #save the isosurfaces
-        unity_files.save_isosurface(self.__radar_grid__.fields[variable]["data"],isosurfaces, variable, save_location, file_type=file_type, smoothing=smooth)
+        unity_files.save_isosurface(self.__radar_grid__.fields[self.variable]["data"],isosurfaces, self.variable, save_location, file_type=file_type, smoothing=smooth)
         print(f"Isosurface files of {self.__radar__} for {self.__f_time__:%m/%d/%Y %H%M%S} UTC created in {save_location}")
 
 
