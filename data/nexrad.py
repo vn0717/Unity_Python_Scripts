@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 import warnings
 import numpy as np
 from modules import unity_files
+import pandas as pd
 
 class nexrad_to_unity:
     def __init__(self, radar, time, horizontal_resolution=1000, x_start=-100, x_end=100, y_start=-100, y_end=100, z_start=0, z_end=20, vertical_resolution = 500):
@@ -259,7 +260,7 @@ class nexrad_to_unity:
 
         """
         #check data types to make sure they are correct
-        if type(self.__time__) != datetime:
+        if type(self.__time__) != datetime and type(self.__time__) != pd._libs.tslibs.timestamps.Timestamp:
             raise ValueError("The time you have entered for time in nexrad_to_unity is not a datetime.  Make sure time is a datetime.")
         if type(self.__radar__) != str:
             raise ValueError("The radar you have entered for radar in nexrad_to_unity is not a string.  Make sure radar is a string.")
