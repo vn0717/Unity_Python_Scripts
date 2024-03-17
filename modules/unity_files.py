@@ -44,6 +44,12 @@ def save_vector_field(U, V, W, filename, normalize=True):
         filepath = "/".join(split)
         if os.path.exists(filepath) == False:
             raise FileNotFoundError(f"The directory path {filepath}/ does not exist")
+        end_file_name = split[-1]
+        filepath += "/"
+    else:
+        filepath = ""
+        end_file_name = filename
+    
 
 
     u_shape = U.shape
@@ -81,39 +87,31 @@ def save_vector_field(U, V, W, filename, normalize=True):
     # Determine volume size
     i, depth, height, width = vector_field.shape
     volume_size = (width, height, depth)
-
-    # Determine FourCC and stride
-    if vector_field.dtype == np.float32:
-        fourcc = b'VF_F'
-        stride = 1
-    elif vector_field.dtype == np.float64:
-        fourcc = b'VF_F'
-        stride = 1
+    fourcc = b'VF_F'
+    stride = 3
+    if vector_field.dtype == np.float64:
         vector_field = vector_field.astype(np.float32)  # Convert to float32
     elif vector_field.dtype == np.float16:
-        fourcc = b'VF_F'
-        stride = 1
         vector_field = vector_field.astype(np.float32)  # Convert to float32
     elif vector_field.dtype == np.float128:
-        fourcc = b'VF_F'
-        stride = 1
         vector_field = vector_field.astype(np.float32)  # Convert to float32
     else:
         raise ValueError(f"Unsupported data type")
 
-    # Open file and write data
-    with open(filename, 'wb') as f:
-        # Write FourCC
-        f.write(fourcc)
+    unity_axes = ["y", "z", "x"]
+    for i, axis in enumerate(["y", "z", "x"]):
+        # Open file and write data
+        with open(f"{filepath}{axis}_{end_file_name}", 'wb') as f:
+            # Write FourCC
+            f.write(fourcc)
 
-        # Write volume size
-        f.write(struct.pack('<HHH', *volume_size))
+            # Write volume size
+            f.write(struct.pack('<HHH', *volume_size))
 
-        # Write data
-        for z in range(depth):
-            for y in range(height):
-                for x in range(width):
-                    for i in range(stride):
+            # Write data
+            for z in range(depth):
+                for y in range(height):
+                    for x in range(width):
                         value = vector_field[i, z, y, x]
                         f.write(struct.pack('<f', value))
 
@@ -167,7 +165,11 @@ def save_isosurface(data, isosurfaces, variable_name, save_path, file_type="dae"
     if smoothing == True:
         data = mc.smooth(data)
 
-    
+    #convert to unity coordinates
+    #unity switches the z and y coordiantes  
+    data = np.swapaxes(data,1,2)
+
+
     #for each isosurface we want
     for surface in isosurfaces:
 

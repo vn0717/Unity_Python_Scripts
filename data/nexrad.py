@@ -10,20 +10,28 @@ Last Worked on: 2/10/2024
 """
 
 import s3fs
-from datetime import datetime
+from datetime import datetime, timedelta
 import warnings
 import numpy as np
 from modules import unity_files
 
 class nexrad_to_unity:
-    def __init__(self, radar, time):
+    def __init__(self, radar, time, horizontal_resolution=1000, x_start=-100, x_end=100, y_start=-100, y_end=100, z_start=0, z_end=20, vertical_resolution = 500):
         self.__s3__ = s3fs.S3FileSystem(anon=True)
         self.__radar__ = radar.upper()
         self.__time__ = time
         self.__nexrad_bucket__ = "noaa-nexrad-level2"
         self.__check_radar_inputs__()
-
-        self.change_radar_grid()
+        self.change_variable()
+        self.change_radar_grid(horizontal_resolution=horizontal_resolution,
+                                 x_start=x_start, 
+                                 x_end=x_end,
+                                 y_start=y_start,
+                                 y_end=y_end,
+                                 z_start=z_start,
+                                 z_end=z_end,
+                                 vertical_resolution = vertical_resolution)
+        
 
 
 
@@ -38,6 +46,9 @@ class nexrad_to_unity:
         self.__radar__ = radar
         self.__time__ = time
         self.__check_radar_inputs__()
+
+    def change_variable(self, variable = "reflectivity"):
+        self.variable = variable
 
     def change_radar_grid(self, horizontal_resolution=1000, x_start=-100, x_end=100, y_start=-100, y_end=100, z_start=0, z_end=20, vertical_resolution = 500):
         """
@@ -63,13 +74,24 @@ class nexrad_to_unity:
         self.__z_end__ = z_end * 1000
         self.__vertical_resolution__ = vertical_resolution
         self.__check_grid_inputs__()
+        self.__radar_file__, self.__f_time__ = self.__find_radar_file__()
+        self.__radar_grid__ = self.__grid_radar__()
         
     def __find_radar_file__(self):
+        """
+        Method to find the closest NEXRAD file to the time selected
+
+        """
+
+
         ####################################
         # Find Radar File
         ####################################
         #list files in bucket for day
-        radar_files = self.__s3__.ls(self.__bucket_string__)
+
+        radar_files = []
+        for bucket in self.__buckets__:
+            radar_files += self.__s3__.ls(bucket) 
 
         #for each file find the time it is for and find the one that is closest
         #to the date of choice
@@ -146,7 +168,7 @@ class nexrad_to_unity:
         print(f"Selected file for {self.__radar__} at {f_time:%m/%d/%Y %H%M%S} UTC")
         return file, f_time
     
-    def __grid_radar__(self,file,variable):
+    def __grid_radar__(self):
         from pyart.io import read_nexrad_archive
         from pyart import filters
         from pyart.map import grid_from_radars
@@ -160,11 +182,11 @@ class nexrad_to_unity:
         z_grid_points = int((self.__z_end__ - self.__z_start__) / self.__vertical_resolution__)
 
         #open radar file
-        radar = read_nexrad_archive(f"s3://{file}")
+        radar = read_nexrad_archive(f"s3://{self.__radar_file__}")
         #create gate filter
         gatefilter = filters.GateFilter(radar)
         gatefilter.exclude_transition()
-        gatefilter.exclude_masked(variable)
+        gatefilter.exclude_masked(self.variable)
 
         #grid the radar data
         radar_grid = grid_from_radars(
@@ -172,20 +194,21 @@ class nexrad_to_unity:
             gatefilters=(gatefilter,),
             grid_shape=(z_grid_points, y_grid_points, x_grid_points),
             grid_limits=((self.__z_start__, self.__z_end__), (self.__y_start__, self.__y_end__), (self.__x_start__, self.__x_end__)),
-            fields=[variable],
+            fields=[self.variable],
         )
         return radar_grid
 
 
-    def plot_area(self, variable = "reflectivity"):
+    def plot_area(self):
         import matplotlib.pyplot as plt
         import pyart
-        file, _ = self.__find_radar_file__()
-        radar_grid = self.__grid_radar__(file, variable)
-        fig = plt.figure()
+          
+        fig = plt.figure(dpi=300)
         ax = fig.add_subplot(111)
-        map = ax.imshow(radar_grid.fields[variable]["data"][0], origin="lower", cmap = "pyart_NWSRef", vmin=0, vmax=80)
+        map = ax.imshow(self.__radar_grid__.fields[self.variable]["data"][0], origin="lower", cmap = "pyart_NWSRef", vmin=0, vmax=80)
         plt.colorbar(map)
+        plt.title(f"{self.__radar__}" , weight="bold", size=14, loc="left")
+        plt.title(f"Valid at: {self.__f_time__:%m/%d/%Y %H%M%S} UTC" , size=8, loc="right")
         plt.show()
 
     def create_file(self, save_location, isosurfaces, variable = "reflectivity", file_type="dae", smooth=False):
@@ -201,19 +224,13 @@ class nexrad_to_unity:
         """
 
 
-
-
-        file, f_time = self.__find_radar_file__()
-        radar_grid = self.__grid_radar__(self, file, variable)
-
-
         ################################
         #Save Isosurface
         ################################
 
         #save the isosurfaces
-        unity_files.save_isosurface(radar_grid.fields[variable]["data"],isosurfaces, variable, save_location, file_type=file_type, smoothing=smooth)
-        print(f"Isosurface files of {self.__radar__} for {f_time:%m/%d/%Y %H%M%S} UTC created in {save_location}")
+        unity_files.save_isosurface(self.__radar_grid__.fields[variable]["data"],isosurfaces, variable, save_location, file_type=file_type, smoothing=smooth)
+        print(f"Isosurface files of {self.__radar__} for {self.__f_time__:%m/%d/%Y %H%M%S} UTC created in {save_location}")
 
 
     def get_grid_info(self):
@@ -234,8 +251,6 @@ class nexrad_to_unity:
 
     def get_radar_info(self):
         print(f"NEXRAD to Unity is looking for radar data at {self.__time__:%m/%d/%Y %H%M} UTC for {self.__radar__}")
-
-
 
 
     def __check_radar_inputs__(self):
@@ -285,6 +300,15 @@ class nexrad_to_unity:
             raise ValueError(f"{self.__radar__} is not available for {self.__time__:%m/%d/%Y}.")
         else:
             self.__bucket_string__ += f"/{self.__radar__}"
+
+        self.__buckets__ = [self.__bucket_string__]
+        for extra_date in [self.__time__ - timedelta(days=1), self.__time__ + timedelta(days=1)]:
+            temp_string = f"self.__nexrad_bucket__{self.__time__:%Y/%m/%d}/{self.__radar__}"
+            try:
+                self.__s3__.ls(temp_string, detail=False)
+                self.__buckets__.append(temp_string)
+            except:
+                pass
 
     def __check_grid_inputs__(self):
         """
