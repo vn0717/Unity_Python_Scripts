@@ -10,6 +10,7 @@ import struct
 import numpy as np
 import os
 import mcubes as mc  
+import warnings
 
 def save_vector_field(U, V, W, filename, normalize=True):
     """
@@ -165,10 +166,9 @@ def save_isosurface(data, isosurfaces, variable_name, save_path, file_type="dae"
     if smoothing == True:
         data = mc.smooth(data)
 
-    #convert to unity coordinates
-    #unity switches the z and y coordiantes  
-    data = np.swapaxes(data,1,2)
+    
 
+    files_created = []
 
     #for each isosurface we want
     for surface in isosurfaces:
@@ -177,12 +177,76 @@ def save_isosurface(data, isosurfaces, variable_name, save_path, file_type="dae"
         vertices, triangles = mc.marching_cubes(data, surface)
 
         if file_type == "dae":
+            file_name =  f"{save_path}{str(surface)}_{variable_name}.dae"
             #export results as a dae file
-            mc.export_mesh(vertices, triangles, f"{save_path}{str(surface)}_{variable_name}.dae", f"{str(surface)}Surface")
+            mc.export_mesh(vertices, triangles, file_name, f"{str(surface)}Surface")
 
         elif file_type == "obj":
+            file_name = f"{save_path}{str(surface)}_{variable_name}.obj"
             mc.export_obj(vertices, triangles, f"{save_path}{str(surface)}_{variable_name}.obj")
 
         else:
             raise ValueError(f"{file_type} is not a valid file type.  Only dae and obj files are supported.")
         
+        files_created.append(file_name)
+        
+
+class unity_files:
+    def __init__(self):
+        self.__cartesian__ = True
+        self.__radar_file__ = False
+        self.__file_meta__ = {}
+        self.__file_init__ = False
+        self.__isosurfaces__ = False
+        self.__vecors__ = False
+
+    def init_radar(self, radar_lat, radar_lon, box_dims):
+        check = self.__check_init__()
+        if check == False:
+            self.__radar_file__ = True
+            self.__cartesian__ = True
+            self.__file_init__ = True
+            self.__radar_info__ = {"Latitude":radar_lat, "Longitude":radar_lon}
+            self.__radar_dims__ = box_dims
+
+    def init_ideal_model(self):
+        check = self.__check_init__()
+        if check == False:
+            self.__radar_file__ = False
+            self.__cartesian__ = True
+            self.__file_init__ = True
+
+    def init_geo_model(self):
+        check = self.__check_init__()
+        if check == False:
+            self.__radar_file__ = False
+            self.__cartesian__ = False
+            self.__file_init__ = True
+
+
+    def init_isosurfaces(self, data, levels):
+        """
+        Files must be (x,y,z)
+
+        """
+        self.__iso_data__ = data
+        self.__iso_levels__ = levels
+        #convert to unity coordinates
+        #unity switches the z and y coordiantes  
+        self.__iso_data__ = np.swapaxes(self.__iso_data__,1,2)
+ 
+
+    def save_isosurfaces(self, data, isosurfaces, variable_name, save_path, file_type="dae", smoothing = False):
+        if self.__file_init__ == False:
+            warnings.warn("File type not initalized.  Defaulting to idealized model files.")
+
+
+    def __build_coord__(self, shape, coord_num, radar_dims = None):
+
+
+    def __check_init__(self):
+        if len(self.__isosurface_files__) > 0 or len(self.__vector_files__) > 0:
+            warnings.warn(f"You have already created files and initalization cannot be changed.  The intaliziation remains as RADAR = {self.__radar_file__} and CARTESIAN = {self.__cartesian__}")
+            return True
+        else:
+            return False

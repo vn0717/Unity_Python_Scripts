@@ -184,6 +184,9 @@ class nexrad_to_unity:
         gatefilter.exclude_transition()
         gatefilter.exclude_masked(self.variable)
 
+        self.__rad_lat__ = radar.latitude["data"][0]
+        self.__rad_lon__ = radar.longitude["data"][0]
+
         #grid the radar data
         radar_grid = grid_from_radars(
             (radar,),
