@@ -366,6 +366,15 @@ class unity_files:
 
 
     def __create_isosurface_files__(self, file_location):
+        """
+        Method for creating isosurface files
+
+        Args:
+            file_location (STRING): Location where isosurface files are to be saved.
+
+        Returns:
+            DICTONARY: Meta data from the isosurface files
+        """
         meta = {}
         if self.__cartesian__ == True:
             meta["grid"] = "cartesian"
@@ -382,6 +391,7 @@ class unity_files:
         #just incase someone adds a . at the begining. This gets rid of it a prevents the logic error it would throw
         file_type = file_type.replace(".", "")
 
+        #correct the dimensions from the statndard math x,y,z to unity x,z,y.
         data = np.swapaxes(self.__iso_data__["var"]["data"], 1, 2)
         x = np.swapaxes(self.__iso_dims__["x"]["data"],1,2)
         y = np.swapaxes(self.__iso_dims__["z"]["data"],1,2)
@@ -440,19 +450,53 @@ class unity_files:
         return meta
 
     def __create_vector_files__(self, file_location):
-        meta = {}
-        time_f, time = self.__process_time__(self.__vector_dims__["time"])
+        """
+        Method for creating vector files
 
+        Args:
+            file_location (STRING): Location where to save the vector files
+
+
+        Returns:
+            DICTONARY: Meta data for the vector files
+        """
+        meta = {}
+        #add valid time to the meta data
+        time_f, time = self.__process_time__(self.__vector_dims__["time"])
         meta[time_f] = time
+
+        #add the grid type to the meta data
         if self.__cartesian__ == True:
             meta["grid"] = "cartesian"
         else:
             meta["grid"] = "latlon"
 
 
+        vector_dim_to_process = []
+        dims = {}
+
+        #correct the dimensions from the statndard math x,y,z to unity x,z,y.
         U = np.swapaxes(self.__vector_dims__["U"]["data"],1,2)
-        V = np.swapaxes(self.__vector_dims__["W"]["data"],1,2)
-        W = np.swapaxes(self.__vector_dims__["V"]["data"],1,2)
+        u_shape = U.shape
+        dims[f"x_vector_units"] = self.__vector_dims__["U"]["units"]
+        vector_dim_to_process.append("x")
+        try:
+            V = np.swapaxes(self.__vector_dims__["W"]["data"],1,2)
+            dims[f"y_vector_units"] = self.__vector_dims__["W"]["units"]
+            v_shape = V.shape
+            y_exist = True
+            vector_dim_to_process.append("y")
+        except KeyError:
+            y_exist = False
+        try:
+            W = np.swapaxes(self.__vector_dims__["V"]["data"],1,2)
+            dims[f"z_vector_units"] = self.__vector_dims__["V"]["units"]
+            w_shape = W.shape
+            vector_dim_to_process.append("z")
+            z_exist = True
+        except KeyError:
+            z_exist = False
+
 
         x = np.swapaxes(self.__vector_dims__["x"]["data"],1,2)
         y = np.swapaxes(self.__vector_dims__["z"]["data"],1,2)
@@ -461,32 +505,31 @@ class unity_files:
         x_unit = self.__vector_dims__["x"]["units"]
         y_unit = self.__vector_dims__["z"]["units"]
         z_unit = self.__vector_dims__["y"]["units"]
-        x_vector_unit = self.__vector_dims__["U"]["units"]
-        y_vector_unit = self.__vector_dims__["W"]["units"]
-        z_vector_unit = self.__vector_dims__["V"]["units"]
+               
 
 
         meta["unity_dims"] = True
-        u_shape = U.shape
-        v_shape = V.shape
-        w_shape = W.shape
-
-        #verify arrays match in size
-        if u_shape != v_shape:
-            raise ValueError(f"U ({str(u_shape)}) and W ({str(v_shape)}) arrays shape do not match")
-        if u_shape != w_shape:
-            raise ValueError(f"U ({str(u_shape)}) and V ({str(w_shape)}) arrays shape do not match")
-        if v_shape != w_shape:
-            raise ValueError(f"W ({str(v_shape)}) and V ({str(w_shape)}) arrays shape do not match")
-
-        
+            
 
         ###################
         # Process Data
         ###################
+        if y_exist == True and z_exist == True:
+            #stack the data together to get one array.
+            vector_field = np.stack((W,V,U))
+            stride = 3
+        elif y_exist == True and z_exist == False:
+            #stack the data together to get one array.
+            vector_field = np.stack((V,U))
+            stride = 2
 
-        #stack the data together to get one array.
-        vector_field = np.stack((W,V,U))
+        elif y_exist == False and z_exist == True:
+            #stack the data together to get one array.
+            vector_field = np.stack((W,U))
+            stride = 2
+        else:
+            vector_field = U[None, :]
+            stride = 1
         
         #this is where the data normalization happens
         if self.__vector_normalize__ == True:
@@ -509,15 +552,15 @@ class unity_files:
             raise ValueError(f"Unsupported data type")
         
 
-        dims = {}
-        for dim, dim_str, dim_unit, vect_unit in zip([x,y,z], self.__dim_strs__, [x_unit, y_unit, z_unit], [x_vector_unit, y_vector_unit, z_vector_unit]):
+
+        for dim, dim_str, dim_unit in zip([x,y,z], self.__dim_strs__, [x_unit, y_unit, z_unit]):
             dims[f"{dim_str}_min"] = np.nanmin(dim)
             dims[f"{dim_str}_max"] = np.nanmax(dim)
             dims[f"{dim_str}_coordinate_units"] = dim_unit
-            dims[f"{dim_str}_vector_units"] = vect_unit
+            
 
 
-        for i, axis in enumerate(self.__dim_strs__):
+        for i, axis in enumerate(vector_dim_to_process):
             # Open file and write data
             file_name = f"{axis}_vector.vf"
             with open(f"{file_location}{file_name}", 'wb') as f:
@@ -541,6 +584,22 @@ class unity_files:
 
 
     def __get_iso_edges__(self, x,y,z,x_unit, y_unit, z_unit, iso_data, level):
+        """
+        Method to find edges of isosurfaces for meta data
+
+        Args:
+            x (NUMPY ARRAY): The unity x coordinate of the data
+            y (NUMPY ARRAY): The unity y coordinate of the data
+            z (NUMPY ARRAY): The unity z coordinate of the data
+            x_unit (STRING): The unity x coordinate variable
+            y_unit (STRING): The unity y coordinate variable
+            z_unit (STRING): The unity z coordinate variable
+            iso_data (NUMPY ARRAY): The data being used to create isosurfaces in unity coodinates
+            level (FLOAT or INT): The isosurface elvel
+
+        Returns:
+            DICTONARY: The meta data for the particular isosurface
+        """
         meta = {}
         xs = x[iso_data >= level]
         ys = y[iso_data >= level]
@@ -624,6 +683,17 @@ class unity_files:
 
     
 def __process_time__(self,time):
+    """
+    Method to determine time data type.  This method also reformats the
+    time for use in the meta data
+
+    Args:
+        time (DATETIME or PINT QUANTITY): The time
+
+    Returns:
+        STRING: The time format
+        STRING: The formatted time
+    """
     if type(time) == datetime or type(time) == pd._libs.tslibs.timestamps.Timestamp:
         return "Date", f"{time:%m%d%Y_%H%M%S}"
     else:
