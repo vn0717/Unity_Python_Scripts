@@ -346,6 +346,13 @@ class unity_files:
         
 
     def create_files(self, file_location):
+        """
+        Driver method for creating the selected unity files.
+        It also build the meta data file.
+
+        Args:
+            file_location (STRING): Location to save files to.
+        """
         meta = {}
         now = datetime.now(datetime.UTC)
         meta["FILE_GENERATED"] = f"{now:%m/%d/%Y_%H%M%S} UTC"
@@ -359,7 +366,7 @@ class unity_files:
         if self.__build_vector__ == True:
             meta["vector_field"] = self.__create_vector_files__(file_location)
 
-        with open("meta.json", "w") as outfile:
+        with open(f"{file_location}meta.json", "w") as outfile:
             json.dump(meta, outfile)
 
 
