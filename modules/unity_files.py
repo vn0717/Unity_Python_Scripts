@@ -14,6 +14,8 @@ import warnings
 from pint import UnitRegistry
 import pandas as pd
 import modules.folder_file_operations as ffops
+from datetime import datetime
+import json
 
 def save_vector_field(U, V, W, filename, normalize=True):
     """
@@ -207,7 +209,7 @@ class unity_files:
         self.__dim_strs__ = ['x', 'y', 'z']
         self.__radar_meta__ = None
 
-    def input_isosurface_data(self, x, y, z, iso_surface_data, iso_surface_levels, time=None, smooth=True):
+    def input_isosurface_data(self, x, y, z, iso_surface_data, iso_surface_levels, time=None, file_type = ".dae", smooth=True, variable_name=None):
         """
         Method to input data to create isosurfaces.  This method does not
         create the isosurfaces and only intalizes the data.  You must
@@ -220,7 +222,9 @@ class unity_files:
             iso_surface_data (PINT ARRAY): The 3D isosurface array of the data in normal x,y,z.
             iso_surface_values (ARRAY): A 1D array of values that isosurfaces should be created for
             time (DATETIME or PINT QUANTITY, OPTIONAL) : The time the data is valid for
+            file_type (STRING, OPTIONAL): The Unity file type to create. Options are dae or obj. Defaults to "dae".
             smooth (BOOL, OPTIONAL): If the isosurfaces should be smoothed.  Defaults to True.
+            variable_name (STRING, OPTIONAL) : A string that is the name of the variable
      
         """
         self.__build_iso__ = True
@@ -228,6 +232,8 @@ class unity_files:
         self.__iso_dims__["var"] = self.__create_var_data__(iso_surface_data)
         self.__isosurface_levels__ = iso_surface_levels
         self.__iso_smooth__ = smooth
+        self.__iso_file_type__ = file_type
+        self.__iso_var_name__ = variable_name
         if time is not None:
             self.__iso_dims__['time'] = time
         else:
@@ -252,6 +258,7 @@ class unity_files:
 
         self.__build_vector__ = True
         self.__cartesian__, self.__vector_dims__ = self.__create_dim_data__(x,y,z)
+        self.__vector_normalize__ = normalize
         self.__vector_dims__["U"] = self.__create_var_data__(U)
         if V is not None:
             self.__vector_dims__["V"] = self.__create_var_data__(V)
@@ -340,6 +347,10 @@ class unity_files:
 
     def create_files(self, file_location):
         meta = {}
+        now = datetime.now(datetime.UTC)
+        meta["FILE_GENERATED"] = f"{now:%m/%d/%Y_%H%M%S} UTC"
+
+
         file_location = ffops.check_directory(file_location)
         if self.__radar__ == True:
             meta["radar"] = self.__radar_meta__
@@ -348,13 +359,198 @@ class unity_files:
         if self.__build_vector__ == True:
             meta["vector_field"] = self.__create_vector_files__(file_location)
 
+        with open("meta.json", "w") as outfile:
+            json.dump(meta, outfile)
+
 
 
 
     def __create_isosurface_files__(self, file_location):
+        meta = {}
+        if self.__cartesian__ == True:
+            meta["grid"] = "cartesian"
+        else:
+            meta["grid"] = "latlon"
+
+        #see if we have an array of surfaces or just one.  If it is just one, put it into a list so the loop works
+        if len(np.shape(self.__isosurface_levels__)) == 0:
+            self.__isosurface_levels__ = [self.__isosurface_levels__]
+
+        #to avoid capitalization mistakes that cause logic errors, make sure everything is lower case
+        file_type = self.__iso_file_type__.lower()
+
+        #just incase someone adds a . at the begining. This gets rid of it a prevents the logic error it would throw
+        file_type = file_type.replace(".", "")
+
+        data = np.swapaxes(self.__iso_data__["var"]["data"], 1, 2)
+        x = np.swapaxes(self.__iso_dims__["x"]["data"],1,2)
+        y = np.swapaxes(self.__iso_dims__["z"]["data"],1,2)
+        z = np.swapaxes(self.__iso_dims__["y"]["data"],1,2)
+        x_unit = self.__iso_dims__["x"]["units"]
+        y_unit = self.__iso_dims__["z"]["units"]
+        z_unit = self.__iso_dims__["y"]["units"]
+
+        meta["unity_dims"] = True
+
+        #########################
+        # Process data
+        #########################
+
+        #if we want smoothing, smooth the data
+        if self.__iso_smooth__ == True:
+            data = mc.smooth(data)
+        
+        meta["smooth"] = self.__iso_smooth__
+
+        if self.__iso_var_name__ is not None:
+            variable_name = self.__iso_var_name__
+        else:
+            variable_name = "NVNP"
+
+        time_f, time = self.__process_time__(self.__iso_dims__["time"])
+
+        meta[time_f] = time
+
+        #for each isosurface we want
+        for surface in self.__isosurface_levels__:
+
+            #does something for the isosurface. (varable to find isosurface of level)
+            vertices, triangles = mc.marching_cubes(data, surface)
+
+            if file_type == "dae":
+                file_name =  f"{file_location}{str(surface)}_{variable_name}.dae"
+                #export results as a dae file
+                mc.export_mesh(vertices, triangles, file_name, f"{str(surface)}Surface")
+
+            elif file_type == "obj":
+                file_name = f"{file_location}{str(surface)}_{variable_name}.obj"
+                mc.export_obj(vertices, triangles, f"{file_location}{str(surface)}_{variable_name}.obj")
+
+            else:
+                raise ValueError(f"{file_type} is not a valid file type.  Only dae and obj files are supported.")
+            
+            meta[f"{str(surface)}_{variable_name}.obj"] = self.__get_iso_edges__(x,y,z,x_unit, y_unit, z_unit, data, surface)
+            meta[f"{str(surface)}_{variable_name}.obj"]["isosurface_units"] = self.__iso_data__["var"]["units"]
+            meta[f"{str(surface)}_{variable_name}.obj"]["isosurface_level"] = surface
+            if variable_name != "NVNP":
+                meta[f"{str(surface)}_{variable_name}.obj"]["variable"] =  variable_name
+            else:
+                meta[f"{str(surface)}_{variable_name}.obj"]["variable"] =  "No Variable Provided"
+            
+        return meta
 
     def __create_vector_files__(self, file_location):
+        meta = {}
+        time_f, time = self.__process_time__(self.__vector_dims__["time"])
 
+        meta[time_f] = time
+        if self.__cartesian__ == True:
+            meta["grid"] = "cartesian"
+        else:
+            meta["grid"] = "latlon"
+
+
+        U = np.swapaxes(self.__vector_dims__["U"]["data"],1,2)
+        V = np.swapaxes(self.__vector_dims__["W"]["data"],1,2)
+        W = np.swapaxes(self.__vector_dims__["V"]["data"],1,2)
+
+        x = np.swapaxes(self.__vector_dims__["x"]["data"],1,2)
+        y = np.swapaxes(self.__vector_dims__["z"]["data"],1,2)
+        z = np.swapaxes(self.__vector_dims__["y"]["data"],1,2)
+
+        x_unit = self.__vector_dims__["x"]["units"]
+        y_unit = self.__vector_dims__["z"]["units"]
+        z_unit = self.__vector_dims__["y"]["units"]
+        x_vector_unit = self.__vector_dims__["U"]["units"]
+        y_vector_unit = self.__vector_dims__["W"]["units"]
+        z_vector_unit = self.__vector_dims__["V"]["units"]
+
+
+        meta["unity_dims"] = True
+        u_shape = U.shape
+        v_shape = V.shape
+        w_shape = W.shape
+
+        #verify arrays match in size
+        if u_shape != v_shape:
+            raise ValueError(f"U ({str(u_shape)}) and W ({str(v_shape)}) arrays shape do not match")
+        if u_shape != w_shape:
+            raise ValueError(f"U ({str(u_shape)}) and V ({str(w_shape)}) arrays shape do not match")
+        if v_shape != w_shape:
+            raise ValueError(f"W ({str(v_shape)}) and V ({str(w_shape)}) arrays shape do not match")
+
+        
+
+        ###################
+        # Process Data
+        ###################
+
+        #stack the data together to get one array.
+        vector_field = np.stack((W,V,U))
+        
+        #this is where the data normalization happens
+        if self.__vector_normalize__ == True:
+            v_field = np.absolute(vector_field)
+            maximum = np.amax(v_field)
+            vector_field = vector_field / maximum
+
+        # Determine volume size
+        i, depth, height, width = vector_field.shape
+        volume_size = (width, height, depth)
+        fourcc = b'VF_F'
+        stride = 3
+        if vector_field.dtype == np.float64:
+            vector_field = vector_field.astype(np.float32)  # Convert to float32
+        elif vector_field.dtype == np.float16:
+            vector_field = vector_field.astype(np.float32)  # Convert to float32
+        elif vector_field.dtype == np.float128:
+            vector_field = vector_field.astype(np.float32)  # Convert to float32
+        else:
+            raise ValueError(f"Unsupported data type")
+        
+
+        dims = {}
+        for dim, dim_str, dim_unit, vect_unit in zip([x,y,z], self.__dim_strs__, [x_unit, y_unit, z_unit], [x_vector_unit, y_vector_unit, z_vector_unit]):
+            dims[f"{dim_str}_min"] = np.nanmin(dim)
+            dims[f"{dim_str}_max"] = np.nanmax(dim)
+            dims[f"{dim_str}_coordinate_units"] = dim_unit
+            dims[f"{dim_str}_vector_units"] = vect_unit
+
+
+        for i, axis in enumerate(self.__dim_strs__):
+            # Open file and write data
+            file_name = f"{axis}_vector.vf"
+            with open(f"{file_location}{file_name}", 'wb') as f:
+                # Write FourCC
+                f.write(fourcc)
+
+                # Write volume size
+                f.write(struct.pack('<HHH', *volume_size))
+
+                # Write data
+                for z in range(depth):
+                    for y in range(height):
+                        for x in range(width):
+                            value = vector_field[i, z, y, x]
+                            f.write(struct.pack('<f', value))
+
+            meta[file_name] = dims
+
+        return meta
+
+
+
+    def __get_iso_edges__(self, x,y,z,x_unit, y_unit, z_unit, iso_data, level):
+        meta = {}
+        xs = x[iso_data >= level]
+        ys = y[iso_data >= level]
+        zs = z[iso_data >= level]
+        
+        for dim, dim_str, dim_unit in zip([xs,ys,zs], self.__dim_strs__, [x_unit, y_unit, z_unit]):
+            meta[f"{dim_str}_min"] = np.nanmin(dim)
+            meta[f"{dim_str}_max"] = np.nanmax(dim)
+            meta[f"{dim_str}_cooridnate_units"] = dim_unit
+        return meta
 
 
     def __create_var_data__(self, var):
@@ -369,10 +565,18 @@ class unity_files:
         """
 
         final = {}
+
+        
+
         try:
+            if len(var.magntitude.shape) != 3:
+                raise ValueError(f"The isosuface variable data is {str(len(var.magntitude.shape))} demensional.  The data needs to be 3 demensional.")
             final["units"] = var.unit
             final["data"] = var.magnitude
+
         except AttributeError:
+            if len(var.shape) != 3:
+                raise ValueError(f"The isosuface variable data is {str(len(var.shape))} demensional.  The data needs to be 3 demensional.")
             final["units"] = "dimensionless"
             final["data"] = var
         return final
@@ -393,7 +597,9 @@ class unity_files:
         dims = {}
         #for each dimension lets seperate out the unit and magnitude of the data
         for dim_str, dim in zip(self.__dim_strs__, [x,y,z]):
-
+            #verify data is 3D
+            if len(dim.shape) != 3:
+                raise ValueError(f"The {dim_str} cooridnate data is {str(len(dim.shape))} demensional.  The data needs to be 3 demensional.")
             #make sure we have units.  If not raise an error
             try:
                 unit = dim.units
@@ -403,15 +609,23 @@ class unity_files:
             #if the unit is degrees then we are dealing with geographical data and thus 
             #we are not working with a carteasian coordinate
             if unit == "degree":
-                scartesian = False
+                if dim_str == "x":
+                    cartesian = False
             #if the grid is cartesian then lets get everything to the same units
             #I choose meter to be the standard unit.
             else:
                 dim = dim.to(self.__units__.meter)
-                cartesian = True
+                if dim_str == "x":
+                    cartesian = True
             
             dims[dim_str]["data"] = dim.magnitude
             dims[dim_str]["units"] = dim.units
         return cartesian, dims
 
     
+def __process_time__(self,time):
+    if type(time) == datetime or type(time) == pd._libs.tslibs.timestamps.Timestamp:
+        return "Date", f"{time:%m%d%Y_%H%M%S}"
+    else:
+        time.to(self.__units__.seconds)
+        return "Run_Time", str(round(time.magnitude,3))
