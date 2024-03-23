@@ -11,6 +11,8 @@ import numpy as np
 import os
 import mcubes as mc  
 import warnings
+from pint import UnitRegistry
+import pandas as pd
 
 def save_vector_field(U, V, W, filename, normalize=True):
     """
@@ -193,60 +195,128 @@ def save_isosurface(data, isosurfaces, variable_name, save_path, file_type="dae"
 
 class unity_files:
     def __init__(self):
+        self.__units__ = UnitRegistry()
+        self.files_to_build()
         self.__cartesian__ = True
-        self.__radar_file__ = False
-        self.__file_meta__ = {}
-        self.__file_init__ = False
-        self.__isosurfaces__ = False
-        self.__vecors__ = False
+        self.__iso_dims__ = {}
+        self.__vector_dims__ = {}
+        self.__radar__ == False
+        self.__build_iso__ = False
+        self.__build_vector__ = False
+        self.__dim_strs__ = ['x', 'y', 'z']
+        self.__radar_meta__ = None
 
-    def init_radar(self, radar_lat, radar_lon, box_dims):
-        check = self.__check_init__()
-        if check == False:
-            self.__radar_file__ = True
-            self.__cartesian__ = True
-            self.__file_init__ = True
-            self.__radar_info__ = {"Latitude":radar_lat, "Longitude":radar_lon}
-            self.__radar_dims__ = box_dims
-
-    def init_ideal_model(self):
-        check = self.__check_init__()
-        if check == False:
-            self.__radar_file__ = False
-            self.__cartesian__ = True
-            self.__file_init__ = True
-
-    def init_geo_model(self):
-        check = self.__check_init__()
-        if check == False:
-            self.__radar_file__ = False
-            self.__cartesian__ = False
-            self.__file_init__ = True
-
-
-    def init_isosurfaces(self, data, levels):
+    def input_isosurface_coordinate_data(self, x, y, z):
         """
-        Files must be (x,y,z)
+        Method to input data coordinate data to create isosurfaces.  This method does not
+        create the isosurfaces and only intalizes settings.  You must
+        run this method first before creating isosurfaces.
+
+        Args:
+            x (PINT ARRAY): The x coordinate of the data in normal x,y,z.  Must have pint units.
+            y (PINT ARRAY): The y coordinate of the data in normal x,y,z.  Must have pint units.
+            z (PINT ARRAY): The z coordinate of the data in normal x,y,z.  Must have pint units.
+     
+        """
+        self.__iso_dims__ = {}
+        self.__build_iso__ = True
+
+        #for each dimension lets seperate out the unit and magnitude of the data
+        for dim_str, dim in zip(self.__dim_strs__, [x,y,z]):
+
+            #make sure we have units.  If not raise an error
+            try:
+                unit = dim.units
+            except AttributeError:
+                raise AttributeError(f"{dim_str} does not have any units.  Please use pint to add units to the data.")
+            
+            #if the unit is degrees then we are dealing with geographical data and thus 
+            #we are not working with a carteasian coordinate
+            if unit == "degree":
+                self.__cartesian__ = False
+            #if the grid is cartesian then lets get everything to the same units
+            #I choose meter to be the standard unit.
+            else:
+                dim = dim.to(self.__units__.meter)
+                self.__cartesian__ = True
+            
+            self.__iso_dims__[dim_str]["data"] = dim.magnitude
+            self.__iso_dims__[dim_str]["units"] = dim.units
+
+
+
+
+
+    def init_radar(self, radar_id):
+        """
+        Method to initalize radar data out puts.  This method
+        mainly takes the radar id and finds the radar lat, lon,
+        and elevation data to add to the final meta data file.
+
+        Args:
+            radar_id (STRING): 4 letter ID for the radar you are 
+                creating unity files for
+
 
         """
-        self.__iso_data__ = data
-        self.__iso_levels__ = levels
-        #convert to unity coordinates
-        #unity switches the z and y coordiantes  
-        self.__iso_data__ = np.swapaxes(self.__iso_data__,1,2)
- 
+        self.__radar__ = True
 
-    def save_isosurfaces(self, data, isosurfaces, variable_name, save_path, file_type="dae", smoothing = False):
-        if self.__file_init__ == False:
-            warnings.warn("File type not initalized.  Defaulting to idealized model files.")
+        #make sure the id is four letter.  If it is not, then we don't have an id to work with
+        if len(radar_id) != 4:
+            raise ValueError(f"{radar_id} is not a 4 letter id.  Enter the 4 letter ID of the radar.")
 
+        #make all the letters in the id to be upper case
+        radar_id = radar_id.upper()
 
-    def __build_coord__(self, shape, coord_num, radar_dims = None):
+        #open the radar info csv that is contained in the repository from NVU-Lyndon
+        radar_info = pd.read_csv("../extra/nexrad_sites.csv")
+        #change the index to be the radar ID to make things simpler to index
+        radar_info = radar_info.set_index["ID"]
 
+        #see if we get radar info for the radar id.  If we do the radar exists.
+        #if we don't the radar does not exist as long as Lyndon's list is complete 
+        try:
+            coord_str = radar_info.loc[radar_id]["Coordinates"]
+        except KeyError:
+            raise ValueError(f"{radar_id} is not a valid NEXRAD site.")
 
-    def __check_init__(self):
-        if len(self.__isosurface_files__) > 0 or len(self.__vector_files__) > 0:
-            warnings.warn(f"You have already created files and initalization cannot be changed.  The intaliziation remains as RADAR = {self.__radar_file__} and CARTESIAN = {self.__cartesian__}")
-            return True
-        else:
-            return False
+        #the coordinates in Lyndon's list are unessisarly complex
+        #and so we have to parse it out here
+        coord_str = coord_str.replace(" ", "")
+        coords = coord_str.split("/")
+        print(coord_str)
+
+        lon = int(coords[1][:3])
+        lon += (int(coords[1][3:5]) / 60)
+        lon += (int(coords[1][5:7]) / 3600)
+        if coords[1][-1] != "E":
+            lon *= -1
+
+        lat = int(coords[0][:2])
+        lat += (int(coords[0][2:4]) / 60)
+        lat += (int(coords[0][4:6]) / 3600)
+        if coords[0][-1] == "S":
+            lat *= -1
+
+        #finally package everything up into a dictonary attached to the object
+        self.__radar_meta__ = {
+            "id":radar_id,
+            "latitude":lat,
+            "longitude":lon,
+            "elevation": int(radar_info.loc[radar_id]["Elevation"]) + int(radar_info.loc[radar_id]["Tower_h"]),
+            "elevation_units": "m"
+        }
+
+    def remove_radar(self):
+        """
+        Method for removing the radar meta data.  This is 
+        just in case someone accedently initalzes the radar
+        data when they don't want it.
+        """
+        self.__radar__ = False
+        self.__radar_meta__ = None
+        
+
+    def create_files(self):
+
+    
