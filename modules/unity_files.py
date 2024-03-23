@@ -13,6 +13,7 @@ import mcubes as mc
 import warnings
 from pint import UnitRegistry
 import pandas as pd
+import modules.folder_file_operations as ffops
 
 def save_vector_field(U, V, W, filename, normalize=True):
     """
@@ -198,7 +199,7 @@ class unity_files:
         self.__units__ = UnitRegistry()
         self.files_to_build()
         self.__cartesian__ = True
-        self.__iso_dims__ = {}
+        self.__iso_data__ = {}
         self.__vector_dims__ = {}
         self.__radar__ == False
         self.__build_iso__ = False
@@ -206,42 +207,62 @@ class unity_files:
         self.__dim_strs__ = ['x', 'y', 'z']
         self.__radar_meta__ = None
 
-    def input_isosurface_coordinate_data(self, x, y, z):
+    def input_isosurface_data(self, x, y, z, iso_surface_data, iso_surface_levels, time=None, smooth=True):
         """
-        Method to input data coordinate data to create isosurfaces.  This method does not
-        create the isosurfaces and only intalizes settings.  You must
+        Method to input data to create isosurfaces.  This method does not
+        create the isosurfaces and only intalizes the data.  You must
         run this method first before creating isosurfaces.
 
         Args:
-            x (PINT ARRAY): The x coordinate of the data in normal x,y,z.  Must have pint units.
-            y (PINT ARRAY): The y coordinate of the data in normal x,y,z.  Must have pint units.
-            z (PINT ARRAY): The z coordinate of the data in normal x,y,z.  Must have pint units.
+            x (PINT ARRAY): The 3D x coordinate array of the data in normal x,y,z.  Must have pint units.
+            y (PINT ARRAY): The 3D z coordinate array of the data in normal x,y,z.  Must have pint units.
+            z (PINT ARRAY): The 3D z coordinate array of the data in normal x,y,z.  Must have pint units.
+            iso_surface_data (PINT ARRAY): The 3D isosurface array of the data in normal x,y,z.
+            iso_surface_values (ARRAY): A 1D array of values that isosurfaces should be created for
+            time (DATETIME or PINT QUANTITY, OPTIONAL) : The time the data is valid for
+            smooth (BOOL, OPTIONAL): If the isosurfaces should be smoothed.  Defaults to True.
      
         """
-        self.__iso_dims__ = {}
         self.__build_iso__ = True
+        self.__cartesian__, self.__iso_dims__ = self.__create_dim_data__(x,y,z)
+        self.__iso_dims__["var"] = self.__create_var_data__(iso_surface_data)
+        self.__isosurface_levels__ = iso_surface_levels
+        self.__iso_smooth__ = smooth
+        if time is not None:
+            self.__iso_dims__['time'] = time
+        else:
+            self.__iso_dims__['time'] = 0 * self.__units__.seconds
 
-        #for each dimension lets seperate out the unit and magnitude of the data
-        for dim_str, dim in zip(self.__dim_strs__, [x,y,z]):
+    def input_vector_data(self, x, y, z, U, V=None, W=None, time=None, normalize=False):
+        """
+        Method to input data to create vector data.  This method does not
+        create the vector field and only intalizes the data.  You must
+        run this method first before creating vector data.
 
-            #make sure we have units.  If not raise an error
-            try:
-                unit = dim.units
-            except AttributeError:
-                raise AttributeError(f"{dim_str} does not have any units.  Please use pint to add units to the data.")
-            
-            #if the unit is degrees then we are dealing with geographical data and thus 
-            #we are not working with a carteasian coordinate
-            if unit == "degree":
-                self.__cartesian__ = False
-            #if the grid is cartesian then lets get everything to the same units
-            #I choose meter to be the standard unit.
-            else:
-                dim = dim.to(self.__units__.meter)
-                self.__cartesian__ = True
-            
-            self.__iso_dims__[dim_str]["data"] = dim.magnitude
-            self.__iso_dims__[dim_str]["units"] = dim.units
+        Args:
+            x (PINT ARRAY): The 3D x coordinate array of the data in normal x,y,z.  Must have pint units.
+            y (PINT ARRAY): The 3D z coordinate array of the data in normal x,y,z.  Must have pint units.
+            z (PINT ARRAY): The 3D z coordinate array of the data in normal x,y,z.  Must have pint units.
+            U (PINT ARRAY): The 3D array holding the u component of the vectors in the normal x,y,z coordinates.
+            V (PINT ARRAY, OPTIONAL): The 3D array holding the v component of the vectors in the normal x,y,z coordinates. Defaults to None.
+            W (PINT ARRAY, OPTIONAL): The 3D array holding the w component of the vectors in the normal x,y,z coordinates. Defaults to None.
+            time (DATETIME or PINT QUANTITY, OPTIONAL) : The time the data is valid for
+            normalize (BOOL, OPTIONAL): Whether to make wind values between -1 and 1 (True) or to use the full value (False).  Defaults to False
+        """
+
+        self.__build_vector__ = True
+        self.__cartesian__, self.__vector_dims__ = self.__create_dim_data__(x,y,z)
+        self.__vector_dims__["U"] = self.__create_var_data__(U)
+        if V is not None:
+            self.__vector_dims__["V"] = self.__create_var_data__(V)
+        if W is not None:
+            self.__vector_dims__["W"] = self.__create_var_data__(W)
+
+        if time is not None:
+            self.__vector_dims__['time'] = time
+        else:
+            self.__vector_dims__['time'] = 0 * self.__units__.seconds
+        
 
 
 
@@ -317,6 +338,80 @@ class unity_files:
         self.__radar_meta__ = None
         
 
-    def create_files(self):
+    def create_files(self, file_location):
+        meta = {}
+        file_location = ffops.check_directory(file_location)
+        if self.__radar__ == True:
+            meta["radar"] = self.__radar_meta__
+        if self.__build_iso__ == True:
+            meta["isosurface"] = self.__create_isosurface_files__(file_location)
+        if self.__build_vector__ == True:
+            meta["vector_field"] = self.__create_vector_files__(file_location)
+
+
+
+
+    def __create_isosurface_files__(self, file_location):
+
+    def __create_vector_files__(self, file_location):
+
+
+
+    def __create_var_data__(self, var):
+        """
+        Method to create variable dictonary data for the main variable dictonary
+
+        Args:
+            var (PINT ARRAY or ARRAY LIKE): The variable to be processed
+
+        Returns:
+            DICTONARY: Dictonary with variable data
+        """
+
+        final = {}
+        try:
+            final["units"] = var.unit
+            final["data"] = var.magnitude
+        except AttributeError:
+            final["units"] = "dimensionless"
+            final["data"] = var
+        return final
+    
+    def __create_dim_data__(self, x, y, z):
+        """
+        Method to create dimension variable dictonary
+
+        Args:
+            x (PINT ARRAY): The 3D x coordinate array of the data in normal x,y,z.  Must have pint units.
+            y (PINT ARRAY): The 3D y coordinate array of the data in normal x,y,z.  Must have pint units.
+            z (PINT ARRAY): The 3D z coordinate array of the data in normal x,y,z.  Must have pint units.
+
+        Returns:
+            DICTONARY: Dictonary with coordinate variable data
+        """
+
+        dims = {}
+        #for each dimension lets seperate out the unit and magnitude of the data
+        for dim_str, dim in zip(self.__dim_strs__, [x,y,z]):
+
+            #make sure we have units.  If not raise an error
+            try:
+                unit = dim.units
+            except AttributeError:
+                raise AttributeError(f"{dim_str} does not have any units.  Please use pint to add units to the data.")
+            
+            #if the unit is degrees then we are dealing with geographical data and thus 
+            #we are not working with a carteasian coordinate
+            if unit == "degree":
+                scartesian = False
+            #if the grid is cartesian then lets get everything to the same units
+            #I choose meter to be the standard unit.
+            else:
+                dim = dim.to(self.__units__.meter)
+                cartesian = True
+            
+            dims[dim_str]["data"] = dim.magnitude
+            dims[dim_str]["units"] = dim.units
+        return cartesian, dims
 
     
