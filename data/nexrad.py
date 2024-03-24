@@ -15,26 +15,29 @@ import warnings
 import numpy as np
 from modules import unity_files
 import pandas as pd
+from pint import UnitRegistry
 
 class nexrad_to_unity:
     def __init__(self, radar, time, horizontal_resolution=1000, x_start=-100, x_end=100, y_start=-100, y_end=100, z_start=0, z_end=20, vertical_resolution = 500):
-        
+        self.__units__ = UnitRegistry()
         self.__s3__ = s3fs.S3FileSystem(anon=True)
         self.__radar__ = radar.upper()
         self.__time__ = time
         self.__nexrad_bucket__ = "noaa-nexrad-level2"
         self.__check_radar_inputs__()
         self.change_variable()
-        self.change_radar_grid(horizontal_resolution=horizontal_resolution,
-                                 x_start=x_start, 
-                                 x_end=x_end,
-                                 y_start=y_start,
-                                 y_end=y_end,
-                                 z_start=z_start,
-                                 z_end=z_end,
-                                 vertical_resolution = vertical_resolution)
+        self.change_radar(radar = radar,
+                          time=time,
+                          horizontal_resolution=horizontal_resolution,
+                          x_start=x_start, 
+                          x_end=x_end,
+                          y_start=y_start,
+                          y_end=y_end,
+                          z_start=z_start,
+                          z_end=z_end,
+                          vertical_resolution = vertical_resolution)
         
-
+        
 
 
     def change_radar(self, radar, time, horizontal_resolution=1000, x_start=-100, x_end=100, y_start=-100, y_end=100, z_start=0, z_end=20, vertical_resolution = 500):
@@ -173,9 +176,18 @@ class nexrad_to_unity:
         ######################################
 
         #find the number of grid points based on the starting and ending points using the resolution
-        x_grid_points = int((self.__x_end__ - self.__x_start__) / self.__horizontal_resolution__)
-        y_grid_points = int((self.__y_end__ - self.__y_start__) / self.__horizontal_resolution__)
-        z_grid_points = int((self.__z_end__ - self.__z_start__) / self.__vertical_resolution__)
+        x_grid_points = int((self.__x_end__ - self.__x_start__) / self.__horizontal_resolution__) + 1
+        y_grid_points = int((self.__y_end__ - self.__y_start__) / self.__horizontal_resolution__) + 1
+        z_grid_points = int((self.__z_end__ - self.__z_start__) / self.__vertical_resolution__) + 1
+        
+        xs = np.arange(self.__x_start__, self.__x_end__ + self.__horizontal_resolution__, self.__horizontal_resolution__)
+        ys = np.arange(self.__y_start__, self.__y_end__ + self.__horizontal_resolution__, self.__horizontal_resolution__)
+        zs = np.arange(self.__z_start__, self.__z_end__ + self.__vertical_resolution__, self.__vertical_resolution__)
+        self.__y__, self.__z__, self.__x__ = np.meshgrid(ys, zs, xs)
+
+        self.__x__ *= self.__units__.meter
+        self.__y__ *= self.__units__.meter
+        self.__z__ *= self.__units__.meter
 
         #open radar file
         radar = read_nexrad_archive(f"s3://{self.__radar_file__}")
@@ -183,6 +195,9 @@ class nexrad_to_unity:
         gatefilter = filters.GateFilter(radar)
         gatefilter.exclude_transition()
         gatefilter.exclude_masked(self.variable)
+
+        self.__rad_lat__ = radar.latitude["data"][0]
+        self.__rad_lon__ = radar.longitude["data"][0]
 
         #grid the radar data
         radar_grid = grid_from_radars(
@@ -192,6 +207,8 @@ class nexrad_to_unity:
             grid_limits=((self.__z_start__, self.__z_end__), (self.__y_start__, self.__y_end__), (self.__x_start__, self.__x_end__)),
             fields=[self.variable],
         )
+
+
         return radar_grid
 
 
@@ -214,7 +231,7 @@ class nexrad_to_unity:
         Args:
             save_location (STRING): The directory path to where you want the isosurface files saved to
             isosurfaces (ARRAY LIKE): The variable values you want isosurfaces for
-            smooth (BOOL, OPTIONAL): If you want isosurfaces smoothed before they are saved. Defaults to False.
+            smooth (BOOL, OPTIONAL): If you want isosurfaces smoothed before they are saved. Defaults to False. Can be computationaly expensive.
             file_type (STRING, OPTIONAL): The isosurface file type you want.  Only .dae and .obj files are available.
 
         """
@@ -225,7 +242,20 @@ class nexrad_to_unity:
         ################################
 
         #save the isosurfaces
-        unity_files.save_isosurface(self.__radar_grid__.fields[self.variable]["data"],isosurfaces, self.variable, save_location, file_type=file_type, smoothing=smooth)
+        unity_f = unity_files.unity_files()
+        unity_f.input_isosurface_data(self.__x__,
+                                      self.__y__,
+                                      self.__z__,
+                                      self.__radar_grid__.fields[self.variable]["data"],
+                                      isosurfaces,
+                                      time=self.__f_time__,
+                                      variable_name = self.variable,
+                                      file_type=file_type,
+                                      smooth=smooth)
+
+        unity_f.init_radar(self.__radar__)
+
+        unity_f.create_files(save_location)
         print(f"Isosurface files of {self.__radar__} for {self.__f_time__:%m/%d/%Y %H%M%S} UTC created in {save_location}")
 
 
