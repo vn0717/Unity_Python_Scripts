@@ -36,6 +36,7 @@ Every time isosurface files or vector files are created a metadata.json file wil
     * <b>Date:</b> (STRING) The date the data is valid for.  Formatted mm/dd/yyyy HHMMSS in the timezone specifed by the user.  This option is used for real data cases and will be replaced by Run_Time for ideal cases
     * <b>Run_Time:</b> (STRING) The time stamp in seconds that the data is valid for in seconds.  This option is used for ideal cases and will be replaced with Date for real cases.
     * <b>FILE NAME:</b> Instead of FILE NAME this will be the actual name of the file.  In this subsection there is data that is specific to the file.
+        * <b>vector_units:</b> (STRING) The units of the vector
         * <b>x_min:</b> (STRING) The left most distance or point that had data used to create the vector field.
         * <b>x_max:</b> (STRING) The right most distance or point that had data used to create the vector field.
         * <b>x_coordinate_units:</b> (STRING) The units of the x axis coordinate.
