@@ -456,13 +456,13 @@ class unity_files:
             else:
                 raise ValueError(f"{file_type} is not a valid file type.  Only dae and obj files are supported.")
             
-            meta[f"{str(surface)}_{variable_name}.obj"] = self.__get_iso_edges__(x,y,z,x_unit, y_unit, z_unit, data, surface)
-            meta[f"{str(surface)}_{variable_name}.obj"]["isosurface_units"] = str(self.__iso_dims__["var"]["units"])
-            meta[f"{str(surface)}_{variable_name}.obj"]["isosurface_level"] = str(surface)
+            meta[f"{str(surface)}_{variable_name}.{file_type}"] = self.__get_iso_edges__(x,y,z,x_unit, y_unit, z_unit, data, surface)
+            meta[f"{str(surface)}_{variable_name}.{file_type}"]["isosurface_units"] = str(self.__iso_dims__["var"]["units"])
+            meta[f"{str(surface)}_{variable_name}.{file_type}"]["isosurface_level"] = str(surface)
             if variable_name != "NVNP":
-                meta[f"{str(surface)}_{variable_name}.obj"]["variable"] =  variable_name
+                meta[f"{str(surface)}_{variable_name}.{file_type}"]["variable"] =  variable_name
             else:
-                meta[f"{str(surface)}_{variable_name}.obj"]["variable"] =  "No Variable Provided"
+                meta[f"{str(surface)}_{variable_name}.{file_type}"]["variable"] =  "No Variable Provided"
             
         return meta
 
