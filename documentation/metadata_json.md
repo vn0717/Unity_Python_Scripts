@@ -5,7 +5,9 @@ Every time isosurface files or vector files are created a metadata.json file wil
 <br>
 
 * <b>FILE_GENERATED</b> (STRING) The time the files were created in UTC formatted mm/dd/yyyy HHMMSS
+
 <br>
+
 * <b>radar</b> The section that contains information related to the radar.  This section is optional and will not be present when the data does not work with actual radar data
     * <b>id</b> (STRING) The four letter identifier of the radar
     * <b>latitude</b> (FLOAT) The latitude of the radar in decimal degrees
