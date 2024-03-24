@@ -491,24 +491,22 @@ class unity_files:
 
         vector_dim_to_process = []
         dims = {}
+        dim_units = {}
 
         #correct the dimensions from the statndard math x,y,z to unity x,z,y.
         U = np.swapaxes(self.__vector_dims__["U"]["data"],1,2)
-        u_shape = U.shape
-        dims[f"x_vector_units"] = self.__vector_dims__["U"]["units"]
+        dim_units[f"x_vector_units"] = str(self.__vector_dims__["U"]["units"])
         vector_dim_to_process.append("x")
         try:
             V = np.swapaxes(self.__vector_dims__["W"]["data"],1,2)
-            dims[f"y_vector_units"] = self.__vector_dims__["W"]["units"]
-            v_shape = V.shape
+            dim_units[f"y_vector_units"] = str(self.__vector_dims__["W"]["units"])
             y_exist = True
             vector_dim_to_process.append("y")
         except KeyError:
             y_exist = False
         try:
             W = np.swapaxes(self.__vector_dims__["V"]["data"],1,2)
-            dims[f"z_vector_units"] = self.__vector_dims__["V"]["units"]
-            w_shape = W.shape
+            dim_units[f"z_vector_units"] = str(self.__vector_dims__["V"]["units"])
             vector_dim_to_process.append("z")
             z_exist = True
         except KeyError:
@@ -534,20 +532,14 @@ class unity_files:
         if y_exist == True and z_exist == True:
             #stack the data together to get one array.
             vector_field = np.stack((W,V,U))
-            stride = 3
         elif y_exist == True and z_exist == False:
             #stack the data together to get one array.
             vector_field = np.stack((V,U))
-            stride = 2
-
         elif y_exist == False and z_exist == True:
             #stack the data together to get one array.
             vector_field = np.stack((W,U))
-            stride = 2
         else:
             vector_field = U[None, :]
-            stride = 1
-        
         #this is where the data normalization happens
         if self.__vector_normalize__ == True:
             v_field = np.absolute(vector_field)
@@ -592,9 +584,13 @@ class unity_files:
                     for y in range(height):
                         for x in range(width):
                             value = vector_field[i, z, y, x]
-                            f.write(struct.pack('<f', value))
+                            try:
+                                f.write(struct.pack('<f', value))
+                            except:
+                                raise Exception(f"Value = {str(value)}")
 
             meta[file_name] = dims
+            meta[file_name][f"vector_units"] = dim_units[f"{axis}_vector_units"]
 
         return meta
 
@@ -644,18 +640,14 @@ class unity_files:
         Returns:
             DICTONARY: Dictonary with variable data
         """
-
         final = {}
-
-        
-
         try:
-            if len(var.magntitude.shape) != 3:
+            if len(var.magnitude.shape) != 3:
                 raise ValueError(f"The isosuface variable data is {str(len(var.magntitude.shape))} demensional.  The data needs to be 3 demensional.")
-            final["units"] = var.unit
+            final["units"] = var.units
             final["data"] = var.magnitude
 
-        except AttributeError:
+        except AttributeError as e:
             if len(var.shape) != 3:
                 raise ValueError(f"The isosuface variable data is {str(len(var.shape))} demensional.  The data needs to be 3 demensional.")
             final["units"] = "dimensionless"

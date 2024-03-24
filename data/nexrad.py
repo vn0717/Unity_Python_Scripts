@@ -19,6 +19,7 @@ from pint import UnitRegistry
 
 class nexrad_to_unity:
     def __init__(self, radar, time, horizontal_resolution=1000, x_start=-100, x_end=100, y_start=-100, y_end=100, z_start=0, z_end=20, vertical_resolution = 500):
+        self.__velocity__ = False
         self.__units__ = UnitRegistry()
         self.__s3__ = s3fs.S3FileSystem(anon=True)
         self.__radar__ = radar.upper()
@@ -36,6 +37,7 @@ class nexrad_to_unity:
                           z_start=z_start,
                           z_end=z_end,
                           vertical_resolution = vertical_resolution)
+        
         
         
 
@@ -70,6 +72,8 @@ class nexrad_to_unity:
         self.__check_grid_inputs__()
         self.__radar_file__, self.__f_time__ = self.__find_radar_file__()
         self.__radar_grid__ = self.__grid_radar__()
+        if self.__velocity__ == True:
+            self.add_velocity_vector()
 
     def change_variable(self, variable = "reflectivity"):
         self.variable = variable
@@ -211,6 +215,74 @@ class nexrad_to_unity:
 
         return radar_grid
 
+    def add_velocity_vector(self):
+        from pyart.io import read_nexrad_archive
+        from pyart import filters
+        from pyart.map import grid_from_radars
+        ######################################
+        #Grid Radar Data
+        ######################################
+
+        #find the number of grid points based on the starting and ending points using the resolution
+        x_grid_points = int((self.__x_end__ - self.__x_start__) / self.__horizontal_resolution__) + 1
+        y_grid_points = int((self.__y_end__ - self.__y_start__) / self.__horizontal_resolution__) + 1
+        z_grid_points = int((self.__z_end__ - self.__z_start__) / self.__vertical_resolution__) + 1
+        
+        xs = np.arange(self.__x_start__, self.__x_end__ + self.__horizontal_resolution__, self.__horizontal_resolution__)
+        ys = np.arange(self.__y_start__, self.__y_end__ + self.__horizontal_resolution__, self.__horizontal_resolution__)
+        zs = np.arange(self.__z_start__, self.__z_end__ + self.__vertical_resolution__, self.__vertical_resolution__)
+        self.__y__, self.__z__, self.__x__ = np.meshgrid(ys, zs, xs)
+
+        
+        #open radar file
+        radar = read_nexrad_archive(f"s3://{self.__radar_file__}")
+        #create gate filter
+        gatefilter = filters.GateFilter(radar)
+        gatefilter.exclude_transition()
+        gatefilter.exclude_masked("velocity")
+
+        self.__rad_lat__ = radar.latitude["data"][0]
+        self.__rad_lon__ = radar.longitude["data"][0]
+
+        #grid the radar data
+        radar_grid = grid_from_radars(
+            (radar,),
+            gatefilters=(gatefilter,),
+            grid_shape=(z_grid_points, y_grid_points, x_grid_points),
+            grid_limits=((self.__z_start__, self.__z_end__), (self.__y_start__, self.__y_end__), (self.__x_start__, self.__x_end__)),
+            fields=["velocity"],
+        )
+
+        
+        vel_mag = radar_grid.fields["velocity"]["data"]
+
+        #We have the vector already in the position data, but it is the wrong magnitude.
+        #so here I divide out the magnitude to get the unit vector components.  I then multiply
+        #the unit vector components by the velocity from the radar to get the velocity components
+        mag = np.sqrt((self.__x__ **2) + (self.__y__ **2) + (self.__z__**2))
+
+        x_comp = self.__x__ / mag
+        y_comp = self.__y__ / mag
+        z_comp = self.__z__ / mag
+    
+        self.__u__ = x_comp * np.array(vel_mag)
+        self.__v__ = y_comp * np.array(vel_mag)
+        self.__w__ = z_comp * np.array(vel_mag)
+
+        self.__u__[np.isnan(self.__u__) == True] = 0
+        self.__v__[np.isnan(self.__v__) == True] = 0
+        self.__w__[np.isnan(self.__w__) == True] = 0
+
+       
+        self.__u__ = np.array(self.__u__) * self.__units__.knots
+        self.__v__ = np.array(self.__v__) * self.__units__.knots
+        self.__w__ = np.array(self.__w__) * self.__units__.knots
+        
+        self.__x__ *= self.__units__.meter
+        self.__y__ *= self.__units__.meter
+        self.__z__ *= self.__units__.meter
+        self.__velocity__ = True
+
 
     def plot_area(self):
         import matplotlib.pyplot as plt
@@ -252,6 +324,15 @@ class nexrad_to_unity:
                                       variable_name = self.variable,
                                       file_type=file_type,
                                       smooth=smooth)
+        if self.__velocity__ == True:
+            unity_f.input_vector_data(self.__x__,
+                                    self.__y__,
+                                    self.__z__,
+                                    self.__u__,
+                                    self.__v__,
+                                    self.__w__,
+                                    time=self.__f_time__,
+                                    normalize=False)
 
         unity_f.init_radar(self.__radar__)
 
