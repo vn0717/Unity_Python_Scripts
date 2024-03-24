@@ -14,8 +14,9 @@ import warnings
 from pint import UnitRegistry
 import pandas as pd
 import modules.folder_file_operations as ffops
-from datetime import datetime
+from datetime import datetime, timezone
 import json
+
 
 def save_vector_field(U, V, W, filename, normalize=True):
     """
@@ -171,6 +172,8 @@ def save_isosurface(data, isosurfaces, variable_name, save_path, file_type="dae"
     if smoothing == True:
         data = mc.smooth(data)
 
+
+
     
 
     files_created = []
@@ -199,11 +202,10 @@ def save_isosurface(data, isosurfaces, variable_name, save_path, file_type="dae"
 class unity_files:
     def __init__(self):
         self.__units__ = UnitRegistry()
-        self.files_to_build()
         self.__cartesian__ = True
         self.__iso_data__ = {}
         self.__vector_dims__ = {}
-        self.__radar__ == False
+        self.__radar__ = False
         self.__build_iso__ = False
         self.__build_vector__ = False
         self.__dim_strs__ = ['x', 'y', 'z']
@@ -223,10 +225,11 @@ class unity_files:
             iso_surface_values (ARRAY): A 1D array of values that isosurfaces should be created for
             time (DATETIME or PINT QUANTITY, OPTIONAL) : The time the data is valid for
             file_type (STRING, OPTIONAL): The Unity file type to create. Options are dae or obj. Defaults to "dae".
-            smooth (BOOL, OPTIONAL): If the isosurfaces should be smoothed.  Defaults to True.
+            smooth (BOOL, OPTIONAL): If the isosurfaces should be smoothed.  Defaults to True.  Can be computationaly expensive.
             variable_name (STRING, OPTIONAL) : A string that is the name of the variable
      
         """
+    
         self.__build_iso__ = True
         self.__cartesian__, self.__iso_dims__ = self.__create_dim_data__(x,y,z)
         self.__iso_dims__["var"] = self.__create_var_data__(iso_surface_data)
@@ -238,6 +241,8 @@ class unity_files:
             self.__iso_dims__['time'] = time
         else:
             self.__iso_dims__['time'] = 0 * self.__units__.seconds
+
+
 
     def input_vector_data(self, x, y, z, U, V=None, W=None, time=None, normalize=False):
         """
@@ -295,11 +300,13 @@ class unity_files:
 
         #make all the letters in the id to be upper case
         radar_id = radar_id.upper()
-
+        module_dir = os.path.dirname(__file__)
         #open the radar info csv that is contained in the repository from NVU-Lyndon
-        radar_info = pd.read_csv("../extra/nexrad_sites.csv")
+        #we need to find the module directory or else it uses the working
+        #directory.
+        radar_info = pd.read_csv(f"{module_dir}{os.sep}nexrad_sites.csv")
         #change the index to be the radar ID to make things simpler to index
-        radar_info = radar_info.set_index["ID"]
+        radar_info = radar_info.set_index("ID")
 
         #see if we get radar info for the radar id.  If we do the radar exists.
         #if we don't the radar does not exist as long as Lyndon's list is complete 
@@ -312,7 +319,6 @@ class unity_files:
         #and so we have to parse it out here
         coord_str = coord_str.replace(" ", "")
         coords = coord_str.split("/")
-        print(coord_str)
 
         lon = int(coords[1][:3])
         lon += (int(coords[1][3:5]) / 60)
@@ -332,7 +338,7 @@ class unity_files:
             "latitude":lat,
             "longitude":lon,
             "elevation": int(radar_info.loc[radar_id]["Elevation"]) + int(radar_info.loc[radar_id]["Tower_h"]),
-            "elevation_units": "m"
+            "elevation_units": "meter"
         }
 
     def remove_radar(self):
@@ -354,8 +360,9 @@ class unity_files:
             file_location (STRING): Location to save files to.
         """
         meta = {}
-        now = datetime.now(datetime.UTC)
-        meta["FILE_GENERATED"] = f"{now:%m/%d/%Y_%H%M%S} UTC"
+        #python deprecated the easy .utcnow and this is the new way
+        now = datetime.now(timezone.utc)
+        meta["FILE_GENERATED"] = f"{now:%m/%d/%Y %H%M%S} UTC"
 
 
         file_location = ffops.check_directory(file_location)
@@ -382,6 +389,7 @@ class unity_files:
         Returns:
             DICTONARY: Meta data from the isosurface files
         """
+
         meta = {}
         if self.__cartesian__ == True:
             meta["grid"] = "cartesian"
@@ -399,7 +407,7 @@ class unity_files:
         file_type = file_type.replace(".", "")
 
         #correct the dimensions from the statndard math x,y,z to unity x,z,y.
-        data = np.swapaxes(self.__iso_data__["var"]["data"], 1, 2)
+        data = np.swapaxes(self.__iso_dims__["var"]["data"], 1, 2)
         x = np.swapaxes(self.__iso_dims__["x"]["data"],1,2)
         y = np.swapaxes(self.__iso_dims__["z"]["data"],1,2)
         z = np.swapaxes(self.__iso_dims__["y"]["data"],1,2)
@@ -408,6 +416,8 @@ class unity_files:
         z_unit = self.__iso_dims__["y"]["units"]
 
         meta["unity_dims"] = True
+
+
 
         #########################
         # Process data
@@ -447,8 +457,8 @@ class unity_files:
                 raise ValueError(f"{file_type} is not a valid file type.  Only dae and obj files are supported.")
             
             meta[f"{str(surface)}_{variable_name}.obj"] = self.__get_iso_edges__(x,y,z,x_unit, y_unit, z_unit, data, surface)
-            meta[f"{str(surface)}_{variable_name}.obj"]["isosurface_units"] = self.__iso_data__["var"]["units"]
-            meta[f"{str(surface)}_{variable_name}.obj"]["isosurface_level"] = surface
+            meta[f"{str(surface)}_{variable_name}.obj"]["isosurface_units"] = str(self.__iso_dims__["var"]["units"])
+            meta[f"{str(surface)}_{variable_name}.obj"]["isosurface_level"] = str(surface)
             if variable_name != "NVNP":
                 meta[f"{str(surface)}_{variable_name}.obj"]["variable"] =  variable_name
             else:
@@ -561,9 +571,9 @@ class unity_files:
 
 
         for dim, dim_str, dim_unit in zip([x,y,z], self.__dim_strs__, [x_unit, y_unit, z_unit]):
-            dims[f"{dim_str}_min"] = np.nanmin(dim)
-            dims[f"{dim_str}_max"] = np.nanmax(dim)
-            dims[f"{dim_str}_coordinate_units"] = dim_unit
+            dims[f"{dim_str}_min"] = str(np.nanmin(dim))
+            dims[f"{dim_str}_max"] = str(np.nanmax(dim))
+            dims[f"{dim_str}_coordinate_units"] = str(dim_unit)
             
 
 
@@ -613,9 +623,14 @@ class unity_files:
         zs = z[iso_data >= level]
         
         for dim, dim_str, dim_unit in zip([xs,ys,zs], self.__dim_strs__, [x_unit, y_unit, z_unit]):
-            meta[f"{dim_str}_min"] = np.nanmin(dim)
-            meta[f"{dim_str}_max"] = np.nanmax(dim)
-            meta[f"{dim_str}_cooridnate_units"] = dim_unit
+            #sometimes the isosurface doen't exist
+            try:
+                meta[f"{dim_str}_min"] = str(np.nanmin(dim))
+                meta[f"{dim_str}_max"] = str(np.nanmax(dim))
+            except:
+                meta[f"{dim_str}_min"] = "N/A"
+                meta[f"{dim_str}_max"] = "N/A"
+            meta[f"{dim_str}_cooridnate_units"] = str(dim_unit)
         return meta
 
 
@@ -683,26 +698,26 @@ class unity_files:
                 dim = dim.to(self.__units__.meter)
                 if dim_str == "x":
                     cartesian = True
-            
+            dims[dim_str] = {}
             dims[dim_str]["data"] = dim.magnitude
             dims[dim_str]["units"] = dim.units
         return cartesian, dims
 
     
-def __process_time__(self,time):
-    """
-    Method to determine time data type.  This method also reformats the
-    time for use in the meta data
+    def __process_time__(self,time):
+        """
+        Method to determine time data type.  This method also reformats the
+        time for use in the meta data
 
-    Args:
-        time (DATETIME or PINT QUANTITY): The time
+        Args:
+            time (DATETIME or PINT QUANTITY): The time
 
-    Returns:
-        STRING: The time format
-        STRING: The formatted time
-    """
-    if type(time) == datetime or type(time) == pd._libs.tslibs.timestamps.Timestamp:
-        return "Date", f"{time:%m%d%Y_%H%M%S}"
-    else:
-        time.to(self.__units__.seconds)
-        return "Run_Time", str(round(time.magnitude,3))
+        Returns:
+            STRING: The time format
+            STRING: The formatted time
+        """
+        if type(time) == datetime or type(time) == pd._libs.tslibs.timestamps.Timestamp:
+            return "Date", f"{time:%m/%d/%Y %H%M%S}"
+        else:
+            time.to(self.__units__.seconds)
+            return "Run_Time", str(round(time.magnitude,3))
