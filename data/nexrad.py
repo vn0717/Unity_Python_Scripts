@@ -180,13 +180,16 @@ class nexrad_to_unity:
         ######################################
 
         #find the number of grid points based on the starting and ending points using the resolution
-        x_grid_points = int((self.__x_end__ - self.__x_start__) / self.__horizontal_resolution__) + 1
-        y_grid_points = int((self.__y_end__ - self.__y_start__) / self.__horizontal_resolution__) + 1
-        z_grid_points = int((self.__z_end__ - self.__z_start__) / self.__vertical_resolution__) + 1
         
         xs = np.arange(self.__x_start__, self.__x_end__ + self.__horizontal_resolution__, self.__horizontal_resolution__)
         ys = np.arange(self.__y_start__, self.__y_end__ + self.__horizontal_resolution__, self.__horizontal_resolution__)
         zs = np.arange(self.__z_start__, self.__z_end__ + self.__vertical_resolution__, self.__vertical_resolution__)
+        
+        x_grid_points = len(xs)
+        y_grid_points = len(ys)
+        z_grid_points = len(zs)
+        
+        
         self.__y__, self.__z__, self.__x__ = np.meshgrid(ys, zs, xs)
 
         self.__x__ *= self.__units__.meter
@@ -211,7 +214,7 @@ class nexrad_to_unity:
             grid_limits=((self.__z_start__, self.__z_end__), (self.__y_start__, self.__y_end__), (self.__x_start__, self.__x_end__)),
             fields=[self.variable],
         )
-
+        print(np.shape(radar_grid.fields["reflectivity"]["data"]))
 
         return radar_grid
 
@@ -223,14 +226,18 @@ class nexrad_to_unity:
         #Grid Radar Data
         ######################################
 
-        #find the number of grid points based on the starting and ending points using the resolution
-        x_grid_points = int((self.__x_end__ - self.__x_start__) / self.__horizontal_resolution__) + 1
-        y_grid_points = int((self.__y_end__ - self.__y_start__) / self.__horizontal_resolution__) + 1
-        z_grid_points = int((self.__z_end__ - self.__z_start__) / self.__vertical_resolution__) + 1
+
         
         xs = np.arange(self.__x_start__, self.__x_end__ + self.__horizontal_resolution__, self.__horizontal_resolution__)
         ys = np.arange(self.__y_start__, self.__y_end__ + self.__horizontal_resolution__, self.__horizontal_resolution__)
         zs = np.arange(self.__z_start__, self.__z_end__ + self.__vertical_resolution__, self.__vertical_resolution__)
+        
+        x_grid_points = len(xs)
+        y_grid_points = len(ys)
+        z_grid_points = len(zs)
+        
+        
+        
         self.__y__, self.__z__, self.__x__ = np.meshgrid(ys, zs, xs)
 
         
