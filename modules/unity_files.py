@@ -551,15 +551,8 @@ class unity_files:
         volume_size = (width, height, depth)
         fourcc = b'VF_F'
         stride = 3
-        if vector_field.dtype == np.float64:
-            vector_field = vector_field.astype(np.float32)  # Convert to float32
-        elif vector_field.dtype == np.float16:
-            vector_field = vector_field.astype(np.float32)  # Convert to float32
-        elif vector_field.dtype == np.float128:
-            vector_field = vector_field.astype(np.float32)  # Convert to float32
-        else:
-            raise ValueError(f"Unsupported data type")
-        
+        if vector_field.dtype != np.float32:
+            vector_field = vector_field.astype(np.float32)  # Convert to float32       
 
 
         for dim, dim_str, dim_unit in zip([x,y,z], self.__dim_strs__, [x_unit, y_unit, z_unit]):
